@@ -3,10 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
 #include "Components/TextRenderComponent.h"
-#include "GameFramework/Actor.h"
-#include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "AdvancedWheelComponent.generated.h"
 
 USTRUCT()
@@ -14,7 +11,25 @@ struct FTireImpact {
 	GENERATED_BODY()
 
 	UPROPERTY()
-	FVector Position = FVector::ZeroVector;
+	FVector StartPoint = FVector::ZeroVector;
+	UPROPERTY()
+	FVector EndPoint = FVector::ZeroVector;
+	UPROPERTY()
+	float Compression = 0;
+	UPROPERTY()
+	bool Hit = false;
+	UPROPERTY()
+	FVector LastSpring = FVector::ZeroVector;
+	UPROPERTY()
+	FVector LastDamping = FVector::ZeroVector;
+	UPROPERTY()
+	FVector LastFriction = FVector::ZeroVector;
+
+	UPROPERTY()
+	FHitResult HitResult;
+
+	UPROPERTY()
+	int32 LockTime = 0;
 	UPROPERTY()
 	bool Locked = false;
 };
@@ -31,6 +46,8 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	FCalculateCustomPhysics OnCalculateCustomPhysics;
 	void SubstepTick(float DeltaTime, FBodyInstance* BodyInstance);
+	FTireImpact *GetImpact(uint32 TraceIndex);
+	FTireImpact *GetImpact(uint32 TorI, uint32 PolI);
 
 	physx::PxRigidBody* WRigidBody = NULL;
 	physx::PxRigidBody* BRigidBody = NULL;
@@ -61,6 +78,10 @@ public:
 		bool BikeStabilization;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		bool DebugDraws;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		bool DebugLogs;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		bool OptimizedTracing;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelTireInnerRadius = 30;
@@ -87,20 +108,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelToroidalAngularSpan = 360;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float WheelPoloidalAngularSpan = 180;
+		float WheelPoloidalAngularSpan = 270;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-
 		float WheelTireFrictionLockMul = 100000.;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelTireFrictionVelMul = 200000.;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float WheelTireFrictionDeltaMax = 20000.;
+		float StabilizationMul = 1000000.;
 
-	FORCEINLINE FVector  GetCurrentLocation();
-	FORCEINLINE FRotator GetCurrentRotation();
-	FORCEINLINE FVector  GetCurrentVelocity();
-	FORCEINLINE FVector  GetCurrentAngularVelocity();
-		
-	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		float WheelTireFrictionDeltaMax = 20000.;
 };
