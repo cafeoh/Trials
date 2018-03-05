@@ -44,11 +44,13 @@ public:
 	UAdvancedWheelComponent();
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-	FCalculateCustomPhysics OnCalculateCustomPhysics;
+
 	void SubstepTick(float DeltaTime, FBodyInstance* BodyInstance);
 	FTireImpact *GetImpact(uint32 TraceIndex);
 	FTireImpact *GetImpact(uint32 TorI, uint32 PolI);
+	void TraceImpacts();
 
+	FCalculateCustomPhysics OnCalculateCustomPhysics;
 	physx::PxRigidBody* WRigidBody = NULL;
 	physx::PxRigidBody* BRigidBody = NULL;
 
@@ -58,9 +60,6 @@ public:
 	FString CompositedText;
 
 	TArray<FTireImpact> TireImpacts;
-
-	void RecordVector(FString Name, FVector Vec);
-	void CleanRecord();
 
 	TArray<TTuple<FString, FVector>> VectorRecord;
 	bool Crashed = false;
@@ -75,23 +74,25 @@ public:
 		FString DebugTextComponentName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		bool BikeStabilization;
+		bool DebugDraws = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		bool DebugDraws;
+		bool DrawTraceSpheres = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		bool DebugLogs;
+		bool DebugLogs = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		bool OptimizedTracing;
+		bool OptimizedTracing = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float WheelTireInnerRadius = 30;
+		float WheelTireInnerRadius = 25;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float WheelTireRadius = 5;
+		float WheelTireRadius = 7;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		int32 WheelToroidalDensity = 180;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		int32 WheelPoloidalDensity = 9;
+		int32 WheelToroidalDensity = 50;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+		int32 WheelPoloidalDensity;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+		float SphereTraceRadius;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelTireKp = 50000000;
@@ -113,9 +114,6 @@ public:
 		float WheelTireFrictionLockMul = 100000.;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelTireFrictionVelMul = 200000.;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float StabilizationMul = 1000000.;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		float WheelTireFrictionDeltaMax = 20000.;
