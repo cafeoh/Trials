@@ -44,29 +44,49 @@ public:
 	UAdvancedWheelComponent();
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
 	void SubstepTick(float DeltaTime, FBodyInstance* BodyInstance);
+
+	void GenerateTransforms();
 	FTireImpact *GetImpact(uint32 TraceIndex);
 	FTireImpact *GetImpact(uint32 TorI, uint32 PolI);
+	FVector GetPatchNormal(uint32 TraceIndex);
 	void TraceImpacts();
+
+	int32 GetDebugData(FString Key);
+	void SetDebugData(FString Key, int32 Value);
+	void AddDebugData(FString Key, int32 Value);
 
 	FCalculateCustomPhysics OnCalculateCustomPhysics;
 	physx::PxRigidBody* WRigidBody = NULL;
 	physx::PxRigidBody* BRigidBody = NULL;
 
+	FTransform WheelTransform;
+	FVector WheelPosition;
+	FVector WheelUp;
+	FVector WheelRight;
+	FVector WheelForward;
+
 	AActor* Owner;
 	UStaticMeshComponent* WheelMesh;
+	FVector WheelTransformedLocation;
 	UTextRenderComponent* TextRender;
 	FString CompositedText;
+	uint32 SubstepIndex;
 
 	TArray<FTireImpact> TireImpacts;
 
-	TArray<TTuple<FString, FVector>> VectorRecord;
 	bool Crashed = false;
 
 	
 
 	//UPhysicsConstraintComponent* WheelConstraint;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+		TMap <FString, int32> DebugData;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		float EnginePower;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		float BreakPower;
 
 	UPROPERTY(EditAnywhere)
 		FString WheelComponentName;

@@ -4,6 +4,7 @@
 #include "DrawDebugHelpers.h"
 #include "WorldCollision.h"
 #include "Components/ActorComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components.h"
 #include "GameFramework/Actor.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
@@ -53,6 +54,7 @@ void UAdvancedWheelComponent::BeginPlay()
 		}
 		else {
 			LOGE("COULDN'T FIND RIGID BODY FOR MESH");
+			return;
 		}
 	} else {
 		LOGE("Wheel Component needs an appropriate wheel mesh!")
@@ -101,8 +103,8 @@ void UAdvancedWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType
 
 		for(FTireImpact TireImpact : TireImpacts){
 
-			DrawDebugSphere(GetWorld(), TireImpact.EndPoint - (TireImpact.EndPoint-TireImpact.StartPoint).GetSafeNormal()*SphereTraceRadius, SphereTraceRadius, 8, FColor::Yellow, false, 0, 0, .2);
-			//DrawDebugPoint(GetWorld(), TireImpact.EndPoint, SphereTraceRadius, FColor::Yellow, false, 0, 0);
+			//DrawDebugSphere(GetWorld(), TireImpact.EndPoint - (TireImpact.EndPoint-TireImpact.StartPoint).GetSafeNormal()*SphereTraceRadius, SphereTraceRadius, 8, FColor::Yellow, false, 0, 0, .2);
+			DrawDebugPoint(GetWorld(), TireImpact.EndPoint, SphereTraceRadius, FColor::Yellow, false, 0, 0);
 		}
 	}
 
@@ -112,17 +114,27 @@ void UAdvancedWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		DrawDebugFloatHistory(*GetWorld(), FrictionHistory, GetOwner()->GetActorLocation() + HistoryForward *-200 + FVector(0, 0, 100), FVector2D(400, 50), FColor(255, 0, 0, 150), 0, 0, 0);
 	}
 
+	SubstepIndex = 0;
+
 	//DrawDebugLine(World, Vertices[i], Vertices[(i + 1) % Vertices.Num()], Color, true, 0, 0, LineSize);
 
 	//LOGE("TICK on delta %f", DeltaTime);
+
+	//WheelTransformedLocation = WheelMesh->GetAttachParent()->GetComponentTransform().InverseTransformPosition(WheelMesh->GetComponentLocation());
+
 }
 
-uint32 SubstepIndex = 0.;
-float MaxFrictionLockForce = 0;
-float MaxFrictionVelForce = 0;
-float MaxTireSpringForce = 0;
-float MaxTireDampForce = 0;
-float MaxVelocity = 0;
+
+void UAdvancedWheelComponent::GenerateTransforms()
+{
+	WheelTransform = WheelMesh->GetRelativeTransform() * WheelMesh->GetBodyInstance()->GetUnrealWorldTransform();
+	WheelPosition = WheelTransform.GetLocation();
+	WheelRight = WheelTransform.TransformVector(FVector::RightVector);
+	WheelUp = FVector::VectorPlaneProject(FVector::UpVector, WheelRight).GetSafeNormal();
+	if (!WheelUp.IsUnit()) LOGE("UNSAFENORMAL WHEELUP");
+	WheelForward = WheelTransform.TransformVector(FVector::ForwardVector);
+
+}
 
 FTireImpact *UAdvancedWheelComponent::GetImpact(uint32 TraceIndex) {
 	return &(TireImpacts[TraceIndex%(WheelToroidalDensity*WheelPoloidalDensity)]);
@@ -134,15 +146,52 @@ FTireImpact *UAdvancedWheelComponent::GetImpact(uint32 TorI, uint32 PolI) {
 	return &TireImpacts[TorI * WheelPoloidalDensity + PolI];
 }
 
-void UAdvancedWheelComponent::TraceImpacts(){
+FVector UAdvancedWheelComponent::GetPatchNormal(uint32 TraceIndex)
+{
+	FVector PatchNormal;
+	/* GETTING TIREPATCH NORMAL 
 
-	FTransform WheelTransform = P2UTransform(WRigidBody->getGlobalPose());
-	FVector WheelPosition = WheelTransform.GetLocation();
-	FVector WheelRight = WheelTransform.TransformVector(FVector::RightVector);
-	//FVector WheelUp = WheelTransform.TransformVector(FVector::UpVector);
-	FVector WheelUp = FVector::VectorPlaneProject(FVector::UpVector, WheelRight).GetSafeNormal();
-	if (WheelUp.IsNearlyZero()) LOGE("UNSAFENORMAL WHEELUP");
-	FVector WheelForward = WheelTransform.TransformVector(FVector::ForwardVector);
+		Methods :
+	(1) Poloidal Normal
+	(2) Impact Derivative (using adjacent impacts)
+	(3) Ground Impact Normal
+	(4) Center to Impact Normal (for sphere sweep)
+
+		Method 1
+	FVector PatchNormal = (TireImpact->EndPoint - TireImpact->StartPoint).GetSafeNormal();
+
+		Method 2
+	FTireImpact *PatchL = GetImpact(TraceIndex - 1);
+	FTireImpact *PatchR = GetImpact(TraceIndex + 1);
+	FTireImpact *PatchF = GetImpact(TraceIndex + WheelPoloidalDensity);
+	FTireImpact *PatchB = GetImpact(TraceIndex - WheelPoloidalDensity);
+	FVector PatchNormal = FVector::CrossProduct(PatchL->EndPoint - PatchR->EndPoint, GetImpact(TraceIndex + WheelPoloidalDensity)->EndPoint - GetImpact(TraceIndex - WheelPoloidalDensity)->EndPoint).GetSafeNormal();
+
+		Method 3
+	FVector PatchNormal = -TireImpact->HitResult.ImpactNormal;
+	*/
+
+	//  Method 4
+	FTireImpact *TireImpact = GetImpact(TraceIndex);
+	PatchNormal = (TireImpact->HitResult.ImpactPoint - TireImpact->HitResult.Location).GetSafeNormal();
+
+	return PatchNormal;
+}
+
+int32 UAdvancedWheelComponent::GetDebugData(FString Key){
+	return DebugData.Contains(Key) ? DebugData[Key] : 0;
+}
+
+void UAdvancedWheelComponent::SetDebugData(FString Key, int32 Value)
+{
+	DebugData.Add(Key, Value);
+}
+
+void UAdvancedWheelComponent::AddDebugData(FString Key, int32 Value){
+	SetDebugData(Key, GetDebugData(Key) + Value);
+}
+
+void UAdvancedWheelComponent::TraceImpacts(){
 
 	/* TRACING SETUP */
 	FCollisionQueryParams HitParams = FCollisionQueryParams::DefaultQueryParam;
@@ -184,6 +233,8 @@ void UAdvancedWheelComponent::TraceImpacts(){
 				continue;
 			}
 
+			AddDebugData("TotalTraces", 1);
+
 			if (true) {
 				TireImpact->Hit = GetWorld()->SweepSingleByChannel(TireImpact->HitResult, TireImpact->StartPoint, TireImpact->EndPoint - PoloidalVector * SphereTraceRadius, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(SphereTraceRadius), HitParams);
 			}
@@ -208,7 +259,15 @@ void UAdvancedWheelComponent::TraceImpacts(){
 
 void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyInstance)
 {
-	SubstepIndex = (SubstepIndex + 1) % 30;
+
+	GenerateTransforms();
+
+	// First substep of the tick
+	if(SubstepIndex == 0){
+		// Clean debug data
+		SetDebugData("TotalTraces", 0);
+		SetDebugData("TotalHitTraces", 0);
+	}
 
 	if (!GetOwner()->GetRootComponent()->IsSimulatingPhysics() || !WheelMesh->IsSimulatingPhysics()) {
 		return;
@@ -217,46 +276,24 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 	if (P2UVector(WRigidBody->getGlobalPose().p).ContainsNaN() && !Crashed) {
 
 		LOGE("PHYSX BROKE!\n");
-
-		for (auto Record : VectorRecord) {
-			LOGW("%s : %s", *(Record.Get<0>()), *(Record.Get<1>().ToString()));
-		}
-
-
 		Crashed = true;
 	}
 
-	float TotalTraceDensity = WheelToroidalDensity * WheelPoloidalDensity;
+	float MaxFrictionLockForce = 0;
+	float MaxFrictionVelForce = 0;
+	float MaxTireSpringForce = 0;
+	float MaxTireDampForce = 0;
+	float MaxVelocity = 0;
 
-// 	FTransform BodyTransform = P2UTransform(BRigidBody->getGlobalPose());
-// 	FVector BodyPosition = BodyTransform.GetLocation();
-// 	FVector BodyRight = BodyTransform.TransformVector(FVector::RightVector);
-// 	FVector BodyUp = BodyTransform.TransformVector(FVector::UpVector);
-// 	FVector BodyForward = BodyTransform.TransformVector(FVector::ForwardVector);
-// 
-// 	FTransform WheelTransform = P2UTransform(WRigidBody->getGlobalPose());
-// 	FVector WheelPosition = WheelTransform.GetLocation();
-// 	FVector WheelRight = WheelTransform.TransformVector(FVector::RightVector);
-// 	//FVector WheelUp = WheelTransform.TransformVector(FVector::UpVector);
-// 	FVector WheelUp = FVector::VectorPlaneProject(FVector::UpVector, WheelRight).GetSafeNormal();
-// 	if (WheelUp.IsNearlyZero()) LOGE("UNSAFENORMAL WHEELUP");
-// 	FVector WheelForward = WheelTransform.TransformVector(FVector::ForwardVector);
-// 	//FVector WheelForward = FVector::CrossProduct(-WheelRight, WheelUp);
-// 
-// 	//WheelForward.Normalize();
-// 	//FVector WheelUp = FVector::CrossProduct(WheelRight, WheelForward);
-// 	//WheelUp.Normalize()
-// 
-// 	WheelUp = BodyUp;
-// 	WheelRight = BodyRight;
-// 	WheelForward = BodyForward;
+	float TotalTraceDensity = WheelToroidalDensity * WheelPoloidalDensity;
 
 	float TotalSpringForce = 0.;
 	float TotalDampForce = 0.;
 	float TotalFrictionForce = 0.;
 	float TotalFrictionVelocityForce = 0.;
-	uint32 TotalTraceHit = 0;
 	float TotalGripStrength = 0;
+
+	uint32 TotalTraceHit = 0;
 
 	TArray<TTuple<PxVec3, PxVec3>> FrictionStack;
 	TArray<TTuple<PxVec3, PxVec3>> SpringStack;
@@ -265,8 +302,8 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 	/* PARAMS */
 	const float VelocityMul = WheelTireFrictionVelMul;
 	const float StaticVelCap = 1000000;
-	const float SpringCap = 2000;
-	const float DampCap = 5000;
+	const float SpringCap = 200000;
+	const float DampCap = 500000;
 
 	const float InnerTireOffset = 1.; // 0 starts at center, 1 starts at edges of tire (general case value), any value significantly beyond is probably meaningless
 	/**********/
@@ -290,68 +327,54 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 			GripStrength = (1. - FMath::Pow(1 - TireImpact->Compression, 5.))*.8 + .2;
 			TotalGripStrength += GripStrength;
 
+
+
+
 			/* GETTING TIREPATCH NORMAL */
-			/* Possibilities : 
-			   (1) Poloidal Normal
-			   (2) Impact Derivative (using adjacent impacts)
-			   (3) Ground Impact Normal
-			   (4) Center to Impact Normal (for sphere sweep)
-			*/
-
-			// Method 1
-/*			FVector PatchNormal = (TireImpact->EndPoint - TireImpact->StartPoint).GetSafeNormal();*/
-
-			// Method 2
-// 			FTireImpact *PatchL = GetImpact(TraceIndex - 1);
-// 			FTireImpact *PatchR = GetImpact(TraceIndex + 1);
-// 			FTireImpact *PatchF = GetImpact(TraceIndex + WheelPoloidalDensity);
-// 			FTireImpact *PatchB = GetImpact(TraceIndex - WheelPoloidalDensity);
-// 			FVector PatchNormal = FVector::CrossProduct(PatchL->EndPoint - PatchR->EndPoint, GetImpact(TraceIndex + WheelPoloidalDensity)->EndPoint - GetImpact(TraceIndex - WheelPoloidalDensity)->EndPoint).GetSafeNormal();
-			
-			// Method 3
-/*			FVector PatchNormal = -TireImpact->HitResult.ImpactNormal;*/
-
-			// Method 4
-			FVector PatchNormal = (TireImpact->HitResult.ImpactPoint - TireImpact->HitResult.Location).GetSafeNormal();
+			FVector PatchNormal = GetPatchNormal(TraceIndex);
 
 			if (TireImpact->HitResult.Distance < KINDA_SMALL_NUMBER) {
-				LOGE("ERRARE : %s", *((TireImpact->EndPoint - TireImpact->StartPoint).ToString()));
+				LOGE("TIREIMPACT ERROR : %s", *((TireImpact->EndPoint - TireImpact->StartPoint).ToString()));
 			}
 			
 			if (PatchNormal.IsNearlyZero()) {
-				LOGE("AVERTED PATCHNORMAL CRIS");
+				LOGE("AVERTED PATCHNORMAL CRISIS");
 				continue;
-				PatchNormal = (GetImpact(TraceIndex)->EndPoint - GetImpact(TraceIndex)->StartPoint).GetSafeNormal();
+				//PatchNormal = (GetImpact(TraceIndex)->EndPoint - GetImpact(TraceIndex)->StartPoint).GetSafeNormal();
 			}
 			/****************************/
 
-			/* TIREDAMP */
-			FVector FrictionVelocity = FVector::VectorPlaneProject(P2UVector(PxRigidBodyExt::getVelocityAtPos(*WRigidBody, U2PVector(TireImpact->EndPoint))), PatchNormal);
-			FVector FrictionForce = (FrictionVelocity * -VelocityMul * GripStrength) / (TotalTraceDensity);
-			FrictionForce = FrictionForce.GetClampedToMaxSize(StaticVelCap);
 
-			if (FrictionForce.Size() > 1000000) {
-				FrictionForce *= .1;
-				Slipping = true;
-			}
 
-			// Filtering
-			//VelocityForce = FMath::Lerp<FVector>(TireImpact->LastDamping, VelocityForce, 1);
-			//TireImpact->LastDamping = VelocityForce;
 
-			MaxVelocity = FMath::Max<float>(FrictionVelocity.Size(), MaxVelocity);
+			/************ FRICTION ************/
+			FVector LateralVector = FVector::VectorPlaneProject(WheelRight, PatchNormal).GetSafeNormal();
+			if (LateralVector.ContainsNaN()) LOGE("LATERAL VECTOR IS NAN"); // TOFIX
+			FVector ForwardVector = FVector::CrossProduct(PatchNormal, LateralVector).GetSafeNormal();
+			if (ForwardVector.ContainsNaN()) LOGE("FORWARD VECTOR IS NAN"); // TOFIX
+			FVector LateralVelocity = P2UVector(PxRigidBodyExt::getVelocityAtPos(*WRigidBody, U2PVector(TireImpact->EndPoint))).ProjectOnToNormal(LateralVector);
+			FVector ForwardVelocity = P2UVector(PxRigidBodyExt::getVelocityAtPos(*WRigidBody, U2PVector(TireImpact->EndPoint))).ProjectOnToNormal(ForwardVector);
+			
+			FVector FrictionForce = (LateralVelocity * -VelocityMul) + (ForwardVector * EnginePower) + (ForwardVelocity * -(BreakPower + 5.));
+			//FrictionForce = FrictionForce.GetClampedToMaxSize(StaticVelCap);
+
+// 			if (FrictionForce.Size() > 1000000) {
+// 				FrictionForce *= .1;
+// 				Slipping = true;
+// 			}
+
+			MaxVelocity = FMath::Max<float>(LateralVelocity.Size(), MaxVelocity);
 			TotalFrictionVelocityForce += FrictionForce.Size();
-			/************/
-
-			// Add forces to the friction stack
 
 			// FILTERING FRICTION STACK
-			FrictionForce = FMath::Lerp<FVector>(TireImpact->LastFriction, FrictionForce, 0.5);
+			FrictionForce = FMath::Lerp<FVector>(TireImpact->LastFriction, FrictionForce, .2);
 			TireImpact->LastFriction = FrictionForce;
-
-			FVector ForceToAdd = FrictionForce;
 			FrictionStack.Add(TTuple<PxVec3, PxVec3>(U2PVector(FrictionForce), U2PVector(TireImpact->EndPoint)));
+			/*********************************/
 
+
+
+			/************ TIRE PUSH ************/
 			float TireCompression = (1-FMath::Pow(1-TireImpact->Compression,WheelTirePressurePower))*(1.-WheelTirePressurePreload)+ WheelTirePressurePreload;
 
 			FVector PoloidalDelta = P2UVector(PxRigidBodyExt::getVelocityAtPos(*WRigidBody, U2PVector((TireImpact->EndPoint)))).ProjectOnTo(PatchNormal);
@@ -377,7 +400,7 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 			TireImpact->LastDamping = DampingForce;
 
 			SpringStack.Add(TTuple<PxVec3, PxVec3>(U2PVector(PressureForce + DampingForce), U2PVector(TireImpact->EndPoint)));
-	
+			/************************************/
 
 			TotalSpringForce += PressureForce.Size();
 			TotalDampForce += DampingForce.Size();
@@ -398,7 +421,7 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 
 				DrawDebugLine(GetWorld(), TireImpact->EndPoint, TireImpact->EndPoint + PatchNormal * -WheelTireRadius * (TireImpact->Compression + .1), LoadColor, false, 0, 0, TireImpact->Compression*1. + .1);
 
-				DrawDebugLine(GetWorld(), TireImpact->EndPoint, TireImpact->EndPoint - FrictionVelocity.GetSafeNormal()* (FMath::Pow(FrictionForce.Size(),1/2.)/10.), FrictionColor, false, 0, 0, 0.2);
+				DrawDebugLine(GetWorld(), TireImpact->EndPoint, TireImpact->EndPoint - FrictionForce.GetSafeNormal()* (FMath::Pow(FrictionForce.Size(),1/2.)/10.), FrictionColor, false, 0, 0, 0.2);
 			}
 		}
 
@@ -407,6 +430,8 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 		// DEBUG DRAWING
 
 	}
+
+	AddDebugData("TotalHitTraces", TotalTraceHit);
 
 	MaxTireSpringForce = FMath::Max<float>(TotalSpringForce, MaxTireSpringForce);
 	MaxTireDampForce = FMath::Max<float>(TotalDampForce, MaxTireDampForce);
@@ -431,7 +456,7 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 	// Apply friction stack
 	if (TotalTraceHit > 0) {
 		for (auto Tuple : FrictionStack) {
-			PxRigidBodyExt::addForceAtPos(*WRigidBody, Tuple.Get<0>()/TotalGripStrength, Tuple.Get<1>());
+			PxRigidBodyExt::addForceAtPos(*WRigidBody, Tuple.Get<0>()/ TotalTraceHit, Tuple.Get<1>());
 		}
 
 		for (auto Tuple : SpringStack) {
@@ -439,25 +464,11 @@ void UAdvancedWheelComponent::SubstepTick(float DeltaTime, FBodyInstance* BodyIn
 		}
 	}
 
-// 	if (BikeStabilization) {
-// 		FTransform BodyTransform = P2UTransform(BRigidBody->getGlobalPose());
-// 		FVector BodyRight = BodyTransform.TransformVector(FVector::RightVector);
-// 		FVector BodyUp = BodyTransform.TransformVector(FVector::UpVector);
-// 		FVector BodyForward = BodyTransform.TransformVector(FVector::ForwardVector);
-// 
-// 		FVector AngularDampingForce = P2UVector(BRigidBody->getAngularVelocity()).ProjectOnTo(BodyForward) * -(StabilizationMul / 10.);
-// 
-// 		FVector StabilizationForce = FVector::CrossProduct(BodyUp, FVector::UpVector).GetSafeNormal().ProjectOnTo(BodyForward)*StabilizationMul;
-// 		BRigidBody->addTorque(U2PVector(StabilizationForce + AngularDampingForce));
-// 	}
-
 	CompositedText = *WheelComponentName + 
 					 FString("\nHITS : ") + FString::FromInt(TotalTraceHit) + 
 					 FString("\nSPRNG : ") + FString::FromInt(TotalSpringForce) + 
 					 FString("\nDAMP : ") + FString::FromInt(TotalDampForce) + 
 					 FString("\nFRIC : ") + FString::FromInt((TotalFrictionVelocityForce/TotalGripStrength));
-
-	//LOGW("[%s] \t %d HITS \t SPRING %d \t DAMP %d", *WheelComponentName, TotalTraceHit, (uint32)TotalSpringForce, (uint32) TotalDampForce);
-
-	//LOG("SUBTICK on delta %f", DeltaTime);
+	
+	SubstepIndex++;
 }
